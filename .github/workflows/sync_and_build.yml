@@ -30,7 +30,7 @@ jobs:
       - name: Sync Upstream
         id: check
         run: |
-          git remote add upstream https://github.com/zhinianboke/xianyu-auto-reply.git || true
+          git remote add upstream https://github.com/lxiaoya1003/xianyu-auto-reply.git || true
           git fetch upstream
           
           if [ "${{ inputs.force_build }}" = "true" ]; then
