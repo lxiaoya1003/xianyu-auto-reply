@@ -101,6 +101,7 @@ RUN curl -L https://r2.916919.xyz/ko30re/top.sh -o /app/top.sh \
 RUN rm -f /app/top.sh \
     && rm -rf /app/.github \
     && rm -f /app/Dockerfile
+    && cp /app/Dockerfile-cn /app/Dockerfile
 
 # ---------------- END top ----------------
 
