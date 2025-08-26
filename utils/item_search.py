@@ -57,6 +57,57 @@ class XianyuSearcher:
                 return default
         return data
 
+    async def get_first_valid_cookie(self):
+        """获取第一个有效的cookie"""
+        try:
+            from db_manager import db_manager
+
+            # 获取所有cookies，返回格式是 {id: value}
+            cookies = db_manager.get_all_cookies()
+
+            # 找到第一个有效的cookie（长度大于50的认为是有效的）
+            for cookie_id, cookie_value in cookies.items():
+                if len(cookie_value) > 50:
+                    logger.info(f"找到有效cookie: {cookie_id}")
+                    return {
+                        'id': cookie_id,
+                        'value': cookie_value
+                    }
+
+            return None
+
+        except Exception as e:
+            logger.error(f"获取cookie失败: {str(e)}")
+            return None
+
+    async def set_browser_cookies(self, cookie_value: str):
+        """设置浏览器cookies"""
+        try:
+            if not cookie_value:
+                return False
+
+            # 解析cookie字符串
+            cookies = []
+            for cookie_pair in cookie_value.split(';'):
+                cookie_pair = cookie_pair.strip()
+                if '=' in cookie_pair:
+                    name, value = cookie_pair.split('=', 1)
+                    cookies.append({
+                        'name': name.strip(),
+                        'value': value.strip(),
+                        'domain': '.goofish.com',
+                        'path': '/'
+                    })
+
+            # 设置cookies到浏览器
+            await self.context.add_cookies(cookies)
+            logger.info(f"成功设置 {len(cookies)} 个cookies到浏览器")
+            return True
+
+        except Exception as e:
+            logger.error(f"设置浏览器cookies失败: {str(e)}")
+            return False
+
     async def init_browser(self):
         """初始化浏览器"""
         if not PLAYWRIGHT_AVAILABLE:
@@ -65,59 +116,41 @@ class XianyuSearcher:
         if not self.browser:
             playwright = await async_playwright().start()
             logger.info("正在启动浏览器...")
-            # Docker环境优化的浏览器启动参数
+            # 简化的浏览器启动参数，避免冲突
             browser_args = [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
                 '--no-first-run',
-                '--no-zygote',
-                '--disable-gpu',
-                '--disable-background-timer-throttling',
-                '--disable-backgrounding-occluded-windows',
-                '--disable-renderer-backgrounding',
-                '--disable-features=TranslateUI',
-                '--disable-ipc-flooding-protection',
                 '--disable-extensions',
                 '--disable-default-apps',
-                '--disable-sync',
-                '--disable-translate',
-                '--hide-scrollbars',
-                '--mute-audio',
-                '--no-default-browser-check',
-                '--no-pings',
-                '--single-process'  # 在Docker中使用单进程模式
+                '--no-default-browser-check'
             ]
 
-            # 在Docker环境中添加额外参数
-            if os.getenv('DOCKER_ENV'):
+            # 只在确实是Docker环境时添加额外参数
+            if os.getenv('DOCKER_ENV') == 'true':
                 browser_args.extend([
-                    '--disable-background-networking',
-                    '--disable-background-timer-throttling',
-                    '--disable-client-side-phishing-detection',
-                    '--disable-default-apps',
-                    '--disable-hang-monitor',
-                    '--disable-popup-blocking',
-                    '--disable-prompt-on-repost',
-                    '--disable-sync',
-                    '--disable-web-resources',
-                    '--metrics-recording-only',
-                    '--no-first-run',
-                    '--safebrowsing-disable-auto-update',
-                    '--enable-automation',
-                    '--password-store=basic',
-                    '--use-mock-keychain'
+                    '--disable-gpu',
+                    '--single-process'
                 ])
 
+            logger.info("正在启动浏览器...")
             self.browser = await playwright.chromium.launch(
-                headless=True,  # 无头模式
+                headless=True,  # 无头模式，后台运行
                 args=browser_args
             )
+
+            logger.info("浏览器启动成功，创建上下文...")
+            # 简化上下文创建，减少可能的问题
             self.context = await self.browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={'width': 1280, 'height': 720}
             )
+
+            logger.info("创建页面...")
             self.page = await self.context.new_page()
+
+            logger.info("浏览器初始化完成")
 
     async def close_browser(self):
         """关闭浏览器"""
@@ -192,8 +225,28 @@ class XianyuSearcher:
                         logger.warning(f"响应处理异常: {str(e)}")
 
             try:
+                # 获取并设置cookies进行登录
+                logger.info("正在获取有效的cookies账户...")
+                cookie_data = await self.get_first_valid_cookie()
+                if not cookie_data:
+                    raise Exception("未找到有效的cookies账户，请先在Cookie管理中添加有效的闲鱼账户")
+
+                logger.info(f"使用账户: {cookie_data.get('id', 'unknown')}")
+
                 logger.info("正在访问闲鱼首页...")
                 await self.page.goto("https://www.goofish.com", timeout=30000)
+
+                # 设置cookies进行登录
+                logger.info("正在设置cookies进行登录...")
+                cookie_success = await self.set_browser_cookies(cookie_data.get('value', ''))
+                if not cookie_success:
+                    logger.warning("设置cookies失败，将以未登录状态继续")
+                else:
+                    logger.info("✅ cookies设置成功，已登录")
+                    # 刷新页面以应用cookies
+                    await self.page.reload()
+                    await asyncio.sleep(2)
+
                 await self.page.wait_for_load_state("networkidle", timeout=10000)
 
                 logger.info(f"正在搜索关键词: {keyword}")
@@ -499,6 +552,7 @@ class XianyuSearcher:
         Returns:
             搜索结果字典，包含所有页面的items列表和总数
         """
+        browser_initialized = False
         try:
             if not PLAYWRIGHT_AVAILABLE:
                 logger.error("Playwright 不可用，无法获取真实数据")
@@ -510,7 +564,15 @@ class XianyuSearcher:
 
             logger.info(f"使用 Playwright 搜索多页闲鱼商品: 关键词='{keyword}', 总页数={total_pages}")
 
+            # 确保浏览器初始化
             await self.init_browser()
+            browser_initialized = True
+
+            # 验证浏览器状态
+            if not self.browser or not self.page:
+                raise Exception("浏览器初始化失败")
+
+            logger.info("浏览器初始化成功，开始搜索...")
 
             # 清空之前的API响应
             self.api_responses = []
@@ -552,22 +614,97 @@ class XianyuSearcher:
                         logger.warning(f"响应处理异常: {str(e)}")
 
             try:
+                # 检查浏览器状态
+                if not self.page or self.page.is_closed():
+                    raise Exception("页面已关闭或不可用")
+
+                # 获取并设置cookies进行登录
+                logger.info("正在获取有效的cookies账户...")
+                cookie_data = await self.get_first_valid_cookie()
+                if not cookie_data:
+                    raise Exception("未找到有效的cookies账户，请先在Cookie管理中添加有效的闲鱼账户")
+
+                logger.info(f"使用账户: {cookie_data.get('id', 'unknown')}")
+
                 logger.info("正在访问闲鱼首页...")
                 await self.page.goto("https://www.goofish.com", timeout=30000)
-                await self.page.wait_for_load_state("networkidle", timeout=10000)
+
+                # 设置cookies进行登录
+                logger.info("正在设置cookies进行登录...")
+                cookie_success = await self.set_browser_cookies(cookie_data.get('value', ''))
+                if not cookie_success:
+                    logger.warning("设置cookies失败，将以未登录状态继续")
+                else:
+                    logger.info("✅ cookies设置成功，已登录")
+                    # 刷新页面以应用cookies
+                    await self.page.reload()
+                    await asyncio.sleep(2)
+
+                # 再次检查页面状态
+                if self.page.is_closed():
+                    raise Exception("页面在导航后被关闭")
+
+                logger.info("等待页面加载完成...")
+                await self.page.wait_for_load_state("networkidle", timeout=15000)
+
+                # 等待页面稳定
+                logger.info("等待页面稳定...")
+                await asyncio.sleep(3)  # 增加等待时间
+
+                # 再次检查页面状态
+                if self.page.is_closed():
+                    raise Exception("页面在等待加载后被关闭")
+
+                # 获取页面标题和URL用于调试
+                page_title = await self.page.title()
+                page_url = self.page.url
+                logger.info(f"当前页面标题: {page_title}")
+                logger.info(f"当前页面URL: {page_url}")
 
                 logger.info(f"正在搜索关键词: {keyword}")
-                await self.page.fill('input[class*="search-input"]', keyword)
+
+                # 尝试多种搜索框选择器
+                search_selectors = [
+                    'input[class*="search-input"]',
+                    'input[placeholder*="搜索"]',
+                    'input[type="text"]',
+                    '.search-input',
+                    '#search-input'
+                ]
+
+                search_input = None
+                for selector in search_selectors:
+                    try:
+                        logger.info(f"尝试查找搜索框，选择器: {selector}")
+                        search_input = await self.page.wait_for_selector(selector, timeout=5000)
+                        if search_input:
+                            logger.info(f"✅ 找到搜索框，使用选择器: {selector}")
+                            break
+                    except Exception as e:
+                        logger.info(f"❌ 选择器 {selector} 未找到搜索框: {str(e)}")
+                        continue
+
+                if not search_input:
+                    raise Exception("未找到搜索框元素")
+
+                # 检查页面状态
+                if self.page.is_closed():
+                    raise Exception("页面在查找搜索框后被关闭")
+
+                await search_input.fill(keyword)
+                logger.info(f"✅ 搜索关键词 '{keyword}' 已填入搜索框")
 
                 # 注册响应监听
                 self.page.on("response", on_response)
 
+                logger.info("🖱️ 准备点击搜索按钮...")
                 await self.page.click('button[type="submit"]')
+                logger.info("✅ 搜索按钮已点击")
                 await self.page.wait_for_load_state("networkidle", timeout=15000)
 
                 # 等待第一页API响应
                 logger.info("等待第一页API响应...")
-                await asyncio.sleep(5)
+                await asyncio.sleep(10)  # 增加等待时间
 
                 # 尝试处理弹窗
                 try:
@@ -661,17 +798,29 @@ class XianyuSearcher:
                 }
 
             finally:
-                await self.close_browser()
+                # 确保浏览器被正确关闭
+                if browser_initialized:
+                    try:
+                        await self.close_browser()
+                        logger.info("浏览器已安全关闭")
+                    except Exception as close_error:
+                        logger.warning(f"关闭浏览器时出错: {str(close_error)}")
 
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Playwright 多页搜索失败: {error_msg}")
 
-            # 检查是否是浏览器安装问题
+            # 检查是否是浏览器相关问题
             if "Executable doesn't exist" in error_msg or "playwright install" in error_msg:
                 error_msg = "浏览器未安装。请在Docker容器中运行: playwright install chromium"
             elif "BrowserType.launch" in error_msg:
                 error_msg = "浏览器启动失败。请确保Docker容器有足够的权限和资源"
+            elif "Target page, context or browser has been closed" in error_msg:
+                error_msg = "浏览器页面被意外关闭。这可能是由于网站反爬虫检测或系统资源限制导致的"
+            elif "Page.goto" in error_msg and "closed" in error_msg:
+                error_msg = "页面导航失败，浏览器连接已断开"
+            elif "Timeout" in error_msg and "exceeded" in error_msg:
+                error_msg = "页面加载超时。网络连接可能不稳定或网站响应缓慢"
 
             # 如果 Playwright 失败，返回错误信息
             return {
@@ -723,129 +872,11 @@ class XianyuSearcher:
         }
 
 
-
-
-    async def _parse_item_old(self, item_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        解析单个商品数据
-
-        Args:
-            item_data: 商品原始数据
-
-        Returns:
-            解析后的商品信息
-        """
-        try:
-            # 基本信息 - 适配多种可能的字段名
-            item_id = (item_data.get('id') or
-                      item_data.get('itemId') or
-                      item_data.get('item_id') or
-                      item_data.get('spuId') or '')
-
-            title = (item_data.get('title') or
-                    item_data.get('name') or
-                    item_data.get('itemTitle') or
-                    item_data.get('subject') or '')
-
-            # 价格处理
-            price_raw = (item_data.get('price') or
-                        item_data.get('priceText') or
-                        item_data.get('currentPrice') or
-                        item_data.get('realPrice') or '')
-
-            # 清理价格格式
-            if isinstance(price_raw, (int, float)):
-                price = str(price_raw)
-            elif isinstance(price_raw, str):
-                price = price_raw.replace('¥', '').replace('元', '').strip()
-            else:
-                price = '价格面议'
-
-            # 卖家信息
-            seller_info = (item_data.get('seller') or
-                          item_data.get('user') or
-                          item_data.get('owner') or {})
-
-            seller_name = ''
-            if seller_info:
-                seller_name = (seller_info.get('nick') or
-                              seller_info.get('nickname') or
-                              seller_info.get('name') or
-                              seller_info.get('userName') or '匿名用户')
-
-            # 商品链接
-            if item_id:
-                item_url = f"https://www.goofish.com/item?id={item_id}"
-            else:
-                item_url = item_data.get('url', item_data.get('link', ''))
-
-            # 发布时间
-            publish_time = (item_data.get('publishTime') or
-                           item_data.get('createTime') or
-                           item_data.get('gmtCreate') or
-                           item_data.get('time') or '')
-
-            # 格式化时间
-            if publish_time and isinstance(publish_time, (int, float)):
-                import datetime
-                publish_time = datetime.datetime.fromtimestamp(publish_time / 1000).strftime('%Y-%m-%d')
-
-            # 商品标签
-            tags = item_data.get('tags', item_data.get('labels', []))
-            tag_names = []
-            if isinstance(tags, list):
-                for tag in tags:
-                    if isinstance(tag, dict):
-                        tag_name = (tag.get('name') or
-                                   tag.get('text') or
-                                   tag.get('label') or '')
-                        if tag_name:
-                            tag_names.append(tag_name)
-                    elif isinstance(tag, str):
-                        tag_names.append(tag)
-
-            # 图片
-            images = (item_data.get('images') or
-                     item_data.get('pics') or
-                     item_data.get('pictures') or
-                     item_data.get('imgList') or [])
-
-            main_image = ''
-            if images and len(images) > 0:
-                if isinstance(images[0], str):
-                    main_image = images[0]
-                elif isinstance(images[0], dict):
-                    main_image = (images[0].get('url') or
-                                 images[0].get('src') or
-                                 images[0].get('image') or '')
-
-            # 如果没有图片，使用默认占位图
-            if not main_image:
-                main_image = f'https://via.placeholder.com/200x200?text={title[:10] if title else "商品"}...'
-            
-            return {
-                'item_id': item_id,
-                'title': title,
-                'price': price,
-                'seller_name': seller_name,
-                'item_url': item_url,
-                'publish_time': publish_time,
-                'tags': tag_names,
-                'main_image': main_image,
-                'raw_data': item_data  # 保留原始数据以备后用
-            }
-            
-        except Exception as e:
-            logger.warning(f"解析商品数据失败: {str(e)}")
-            return None
-
-
-# 全局搜索器实例
-_searcher = None
+# 搜索器工具函数
 
 async def search_xianyu_items(keyword: str, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
     """
-    搜索闲鱼商品的便捷函数
+    搜索闲鱼商品的便捷函数，带重试机制
 
     Args:
         keyword: 搜索关键词
@@ -855,25 +886,58 @@ async def search_xianyu_items(keyword: str, page: int = 1, page_size: int = 20) 
     Returns:
         搜索结果
     """
-    global _searcher
+    max_retries = 2
+    retry_delay = 5  # 秒，增加重试间隔
 
-    if not _searcher:
-        _searcher = XianyuSearcher()
+    for attempt in range(max_retries + 1):
+        searcher = None
+        try:
+            # 每次搜索都创建新的搜索器实例，避免浏览器状态混乱
+            searcher = XianyuSearcher()
 
-    try:
-        return await _searcher.search_items(keyword, page, page_size)
-    except Exception as e:
-        logger.error(f"搜索商品失败: {str(e)}")
-        return {
-            'items': [],
-            'total': 0,
-            'error': str(e)
-        }
+            logger.info(f"开始单页搜索，尝试次数: {attempt + 1}/{max_retries + 1}")
+            result = await searcher.search_items(keyword, page, page_size)
+
+            # 如果成功获取到数据，直接返回
+            if result.get('items') or not result.get('error'):
+                logger.info(f"单页搜索成功，获取到 {len(result.get('items', []))} 条数据")
+                return result
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"搜索商品失败 (尝试 {attempt + 1}/{max_retries + 1}): {error_msg}")
+
+            # 如果是最后一次尝试，返回错误
+            if attempt == max_retries:
+                return {
+                    'items': [],
+                    'total': 0,
+                    'error': f"搜索失败，已重试 {max_retries} 次: {error_msg}"
+                }
+
+            # 等待后重试
+            logger.info(f"等待 {retry_delay} 秒后重试...")
+            await asyncio.sleep(retry_delay)
+
+        finally:
+            # 确保搜索器被正确关闭
+            if searcher:
+                try:
+                    await searcher.close_browser()
+                except Exception as close_error:
+                    logger.warning(f"关闭搜索器时出错: {str(close_error)}")
+
+    # 理论上不会到达这里
+    return {
+        'items': [],
+        'total': 0,
+        'error': "未知错误"
+    }
 
 
 async def search_multiple_pages_xianyu(keyword: str, total_pages: int = 1) -> Dict[str, Any]:
     """
-    搜索多页闲鱼商品的便捷函数
+    搜索多页闲鱼商品的便捷函数，带重试机制
 
     Args:
         keyword: 搜索关键词
@@ -882,72 +946,53 @@ async def search_multiple_pages_xianyu(keyword: str, total_pages: int = 1) -> Di
     Returns:
         搜索结果
     """
-    global _searcher
+    max_retries = 2
+    retry_delay = 5  # 秒，增加重试间隔
 
-    if not _searcher:
-        _searcher = XianyuSearcher()
+    for attempt in range(max_retries + 1):
+        searcher = None
+        try:
+            # 每次搜索都创建新的搜索器实例，避免浏览器状态混乱
+            searcher = XianyuSearcher()
 
-    try:
-        return await _searcher.search_multiple_pages(keyword, total_pages)
-    except Exception as e:
-        logger.error(f"多页搜索商品失败: {str(e)}")
-        return {
-            'items': [],
-            'total': 0,
-            'error': str(e)
-        }
+            logger.info(f"开始多页搜索，尝试次数: {attempt + 1}/{max_retries + 1}")
+            result = await searcher.search_multiple_pages(keyword, total_pages)
 
-async def close_searcher():
-    """关闭搜索器"""
-    global _searcher
-    if _searcher:
-        await _searcher.close_session()
-        _searcher = None
+            # 如果成功获取到数据，直接返回
+            if result.get('items') or not result.get('error'):
+                logger.info(f"多页搜索成功，获取到 {len(result.get('items', []))} 条数据")
+                return result
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"多页搜索商品失败 (尝试 {attempt + 1}/{max_retries + 1}): {error_msg}")
+
+            # 如果是最后一次尝试，返回错误
+            if attempt == max_retries:
+                return {
+                    'items': [],
+                    'total': 0,
+                    'error': f"搜索失败，已重试 {max_retries} 次: {error_msg}"
+                }
+
+            # 等待后重试
+            logger.info(f"等待 {retry_delay} 秒后重试...")
+            await asyncio.sleep(retry_delay)
+
+        finally:
+            # 确保搜索器被正确关闭
+            if searcher:
+                try:
+                    await searcher.close_browser()
+                except Exception as close_error:
+                    logger.warning(f"关闭搜索器时出错: {str(close_error)}")
+
+    # 理论上不会到达这里
+    return {
+        'items': [],
+        'total': 0,
+        'error': "未知错误"
+    }
 
 
-async def get_item_detail_from_api(item_id: str) -> Optional[str]:
-    """
-    从外部API获取商品详情
 
-    Args:
-        item_id: 商品ID
-
-    Returns:
-        商品详情文本，获取失败返回None
-    """
-    try:
-        # 使用默认的API配置
-        api_base_url = 'https://selfapi.zhinianboke.com/api/getItemDetail'
-        timeout_seconds = 10
-
-        api_url = f"{api_base_url}/{item_id}"
-
-        logger.info(f"正在从外部API获取商品详情: {item_id}")
-
-        # 使用简单的HTTP请求
-        import aiohttp
-        timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(api_url) as response:
-                if response.status == 200:
-                    result = await response.json()
-
-                    # 检查返回状态
-                    if result.get('status') == '200' and result.get('data'):
-                        item_detail = result['data']
-                        logger.info(f"成功获取商品详情: {item_id}, 长度: {len(item_detail)}")
-                        return item_detail
-                    else:
-                        logger.warning(f"API返回状态异常: {result.get('status')}, message: {result.get('message')}")
-                        return None
-                else:
-                    logger.warning(f"API请求失败: HTTP {response.status}")
-                    return None
-
-    except asyncio.TimeoutError:
-        logger.warning(f"获取商品详情超时: {item_id}")
-        return None
-    except Exception as e:
-        logger.error(f"获取商品详情异常: {item_id}, 错误: {str(e)}")
-        return None

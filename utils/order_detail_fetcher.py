@@ -445,10 +445,16 @@ class OrderDetailFetcher:
                     # 从数量内容中提取数量值（使用冒号分割，取后面的值）
                     if ':' in quantity_content:
                         quantity_value = quantity_content.split(':', 1)[1].strip()
+                        # 去掉数量值前面的 'x' 符号（如 "x2" -> "2"）
+                        if quantity_value.startswith('x'):
+                            quantity_value = quantity_value[1:]
                         result['quantity'] = quantity_value
                         logger.info(f"提取到数量: {quantity_value}")
                         print(f"🔢 数量: {quantity_value}")
                     else:
+                        # 去掉数量值前面的 'x' 符号（如 "x2" -> "2"）
+                        if quantity_content.startswith('x'):
+                            quantity_content = quantity_content[1:]
                         result['quantity'] = quantity_content
                         logger.info(f"数量内容无冒号，直接使用: {quantity_content}")
                         print(f"🔢 数量: {quantity_content}")
@@ -471,10 +477,16 @@ class OrderDetailFetcher:
 
                         if ':' in content:
                             quantity_value = content.split(':', 1)[1].strip()
+                            # 去掉数量值前面的 'x' 符号（如 "x2" -> "2"）
+                            if quantity_value.startswith('x'):
+                                quantity_value = quantity_value[1:]
                             result['quantity'] = quantity_value
                             logger.info(f"提取到数量: {quantity_value}")
                             print(f"🔢 数量: {quantity_value}")
                         else:
+                            # 去掉数量值前面的 'x' 符号（如 "x2" -> "2"）
+                            if content.startswith('x'):
+                                content = content[1:]
                             result['quantity'] = content
                             logger.info(f"数量内容无冒号，直接使用: {content}")
                             print(f"🔢 数量: {content}")
@@ -492,11 +504,11 @@ class OrderDetailFetcher:
                 logger.warning(f"未找到或找到异常数量的 sku--u_ddZval 元素: {len(sku_elements)}")
                 print(f"⚠️ 未找到或找到异常数量的元素: {len(sku_elements)}")
 
-                # 如果没有找到sku--u_ddZval元素，设置默认数量为0
+                # 如果没有找到sku--u_ddZval元素，设置默认数量为1
                 if len(sku_elements) == 0:
-                    result['quantity'] = '0'
-                    logger.info("未找到sku--u_ddZval元素，数量默认设置为0")
-                    print("📦 数量默认设置为: 0")
+                    result['quantity'] = '1'
+                    logger.info("未找到sku--u_ddZval元素，数量默认设置为1")
+                    print("📦 数量默认设置为: 1")
 
                 # 尝试获取页面的所有class包含sku的元素进行调试
                 all_sku_elements = await self.page.query_selector_all('[class*="sku"]')
@@ -507,11 +519,11 @@ class OrderDetailFetcher:
                         text_content = await element.text_content()
                         logger.info(f"SKU元素 {i+1}: class='{class_name}', text='{text_content}'")
 
-            # 确保数量字段存在，如果不存在则设置为0
+            # 确保数量字段存在，如果不存在则设置为1
             if 'quantity' not in result:
-                result['quantity'] = '0'
-                logger.info("未获取到数量信息，默认设置为0")
-                print("📦 数量默认设置为: 0")
+                result['quantity'] = '1'
+                logger.info("未获取到数量信息，默认设置为1")
+                print("📦 数量默认设置为: 1")
 
             # 打印最终结果
             if result:

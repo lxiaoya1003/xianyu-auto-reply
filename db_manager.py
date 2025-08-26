@@ -119,6 +119,7 @@ class DBManager:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             ''')
+
             
             # 创建keywords表
             cursor.execute('''
@@ -277,6 +278,15 @@ class DBManager:
             )
             ''')
 
+            # 检查并添加 multi_quantity_delivery 列（用于多数量发货功能）
+            try:
+                self._execute_sql(cursor, "SELECT multi_quantity_delivery FROM item_info LIMIT 1")
+            except sqlite3.OperationalError:
+                # multi_quantity_delivery 列不存在，需要添加
+                logger.info("正在为 item_info 表添加 multi_quantity_delivery 列...")
+                self._execute_sql(cursor, "ALTER TABLE item_info ADD COLUMN multi_quantity_delivery BOOLEAN DEFAULT FALSE")
+                logger.info("item_info 表 multi_quantity_delivery 列添加完成")
+
             # 创建自动发货规则表
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS delivery_rules (
@@ -315,6 +325,18 @@ class DBManager:
                 if "duplicate column name" not in str(e).lower():
                     logger.warning(f"添加 reply_once 字段失败: {e}")
 
+            # 创建指定商品回复表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS item_replay (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item_id TEXT NOT NULL,
+                    cookie_id TEXT NOT NULL,
+                    reply_content TEXT NOT NULL ,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
             # 创建默认回复记录表（记录已回复的chat_id）
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS default_reply_records (
@@ -332,7 +354,7 @@ class DBManager:
             CREATE TABLE IF NOT EXISTS notification_channels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                type TEXT NOT NULL CHECK (type IN ('qq')),
+                type TEXT NOT NULL CHECK (type IN ('qq','ding_talk','dingtalk','feishu','lark','bark','email','webhook','wechat','telegram')),
                 config TEXT NOT NULL,
                 enabled BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -384,7 +406,15 @@ class DBManager:
             cursor.execute('''
             INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
             ('theme_color', 'blue', '主题颜色'),
-            ('registration_enabled', 'true', '是否开启用户注册')
+            ('registration_enabled', 'true', '是否开启用户注册'),
+            ('show_default_login_info', 'true', '是否显示默认登录信息'),
+            ('smtp_server', '', 'SMTP服务器地址'),
+            ('smtp_port', '587', 'SMTP端口'),
+            ('smtp_user', '', 'SMTP登录用户名（发件邮箱）'),
+            ('smtp_password', '', 'SMTP登录密码/授权码'),
+            ('smtp_from', '', '发件人显示名（留空则使用用户名）'),
+            ('smtp_use_tls', 'true', '是否启用TLS'),
+            ('smtp_use_ssl', 'false', '是否启用SSL')
             ''')
 
             # 检查并升级数据库
@@ -537,6 +567,14 @@ class DBManager:
                 self.upgrade_keywords_table_for_image_support(cursor)
                 self.set_system_setting("db_version", "1.3", "数据库版本号")
                 logger.info("数据库升级到版本1.3完成")
+            
+            
+            # 升级到版本1.4 - 添加关键词类型和图片URL字段
+            if current_version < "1.4":
+                logger.info("开始升级数据库到版本1.4...")
+                self.upgrade_notification_channels_types(cursor)
+                self.set_system_setting("db_version", "1.4", "数据库版本号")
+                logger.info("数据库升级到版本1.4完成")
 
             # 迁移遗留数据（在所有版本升级完成后执行）
             self.migrate_legacy_data(cursor)
@@ -640,6 +678,14 @@ class DBManager:
                     # 多规格字段不存在，需要添加
                     self._execute_sql(cursor, "ALTER TABLE item_info ADD COLUMN is_multi_spec BOOLEAN DEFAULT FALSE")
                     logger.info("为item_info表添加多规格字段")
+
+                # 为item_info表添加多数量发货字段（如果不存在）
+                try:
+                    self._execute_sql(cursor, "SELECT multi_quantity_delivery FROM item_info LIMIT 1")
+                except sqlite3.OperationalError:
+                    # 多数量发货字段不存在，需要添加
+                    self._execute_sql(cursor, "ALTER TABLE item_info ADD COLUMN multi_quantity_delivery BOOLEAN DEFAULT FALSE")
+                    logger.info("为item_info表添加多数量发货字段")
 
                 # 处理keywords表的唯一约束问题
                 # 由于SQLite不支持直接修改约束，我们需要重建表
@@ -765,13 +811,13 @@ class DBManager:
                 existing_data = cursor.fetchall()
                 logger.info(f"备份 {count} 条通知渠道数据")
 
-            # 创建新表，支持更多渠道类型
+            # 创建新表，支持所有通知渠道类型
             cursor.execute('''
             CREATE TABLE notification_channels_new (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 user_id INTEGER NOT NULL,
-                type TEXT NOT NULL CHECK (type IN ('qq','ding_talk','dingtalk','email','webhook','wechat','telegram')),
+                type TEXT NOT NULL CHECK (type IN ('qq','ding_talk','dingtalk','feishu','lark','bark','email','webhook','wechat','telegram')),
                 config TEXT NOT NULL,
                 enabled BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -786,15 +832,18 @@ class DBManager:
                     # 处理类型映射，支持更多渠道类型
                     old_type = row[3] if len(row) > 3 else 'qq'  # type字段
 
-                    # 扩展的类型映射规则
+                    # 完整的类型映射规则，支持所有通知渠道
                     type_mapping = {
                         'ding_talk': 'dingtalk',  # 统一为dingtalk
                         'dingtalk': 'dingtalk',
                         'qq': 'qq',
-                        'email': 'email',  # 现在支持email
-                        'webhook': 'webhook',  # 现在支持webhook
-                        'wechat': 'wechat',  # 现在支持wechat
-                        'telegram': 'telegram'  # 现在支持telegram
+                        'feishu': 'feishu',      # 飞书通知
+                        'lark': 'lark',          # 飞书通知（英文名）
+                        'bark': 'bark',          # Bark通知
+                        'email': 'email',        # 邮件通知
+                        'webhook': 'webhook',    # Webhook通知
+                        'wechat': 'wechat',      # 微信通知
+                        'telegram': 'telegram'   # Telegram通知
                     }
 
                     new_type = type_mapping.get(old_type, 'qq')  # 默认为qq
@@ -825,6 +874,15 @@ class DBManager:
             cursor.execute("ALTER TABLE notification_channels_new RENAME TO notification_channels")
 
             logger.info("notification_channels表类型升级完成")
+            logger.info("✅ 现在支持以下所有通知渠道类型:")
+            logger.info("   - qq (QQ通知)")
+            logger.info("   - ding_talk/dingtalk (钉钉通知)")
+            logger.info("   - feishu/lark (飞书通知)")
+            logger.info("   - bark (Bark通知)")
+            logger.info("   - email (邮件通知)")
+            logger.info("   - webhook (Webhook通知)")
+            logger.info("   - wechat (微信通知)")
+            logger.info("   - telegram (Telegram通知)")
             return True
         except Exception as e:
             logger.error(f"升级notification_channels表类型失败: {e}")
@@ -1049,6 +1107,7 @@ class DBManager:
                     "INSERT OR REPLACE INTO cookies (id, value, user_id) VALUES (?, ?, ?)",
                     (cookie_id, cookie_value, user_id)
                 )
+
                 self.conn.commit()
                 logger.info(f"Cookie保存成功: {cookie_id} (用户ID: {user_id})")
 
@@ -1064,6 +1123,7 @@ class DBManager:
                 logger.error(f"Cookie保存失败: {e}")
                 self.conn.rollback()
                 return False
+
     
     def delete_cookie(self, cookie_id: str) -> bool:
         """从数据库删除Cookie及其关键字"""
@@ -1108,6 +1168,8 @@ class DBManager:
                 logger.error(f"获取所有Cookie失败: {e}")
                 return {}
 
+
+
     def get_cookie_by_id(self, cookie_id: str) -> Optional[Dict[str, str]]:
         """根据ID获取Cookie信息
 
@@ -1148,7 +1210,7 @@ class DBManager:
                         'user_id': result[2],
                         'auto_confirm': bool(result[3]),
                         'remark': result[4] or '',
-                        'pause_duration': result[5] or 10,
+                        'pause_duration': result[5] if result[5] is not None else 10,
                         'created_at': result[6]
                     }
                 return None
@@ -1203,11 +1265,19 @@ class DBManager:
                 self._execute_sql(cursor, "SELECT pause_duration FROM cookies WHERE id = ?", (cookie_id,))
                 result = cursor.fetchone()
                 if result:
-                    return result[0] or 10  # 默认10分钟
-                return 10  # 如果没有找到记录，返回默认值
+                    if result[0] is None:
+                        logger.warning(f"账号 {cookie_id} 的pause_duration为NULL，使用默认值10分钟并修复数据库")
+                        # 修复数据库中的NULL值
+                        self._execute_sql(cursor, "UPDATE cookies SET pause_duration = 10 WHERE id = ?", (cookie_id,))
+                        self.conn.commit()
+                        return 10
+                    return result[0]  # 返回实际值，不使用or操作符
+                else:
+                    logger.warning(f"账号 {cookie_id} 未找到记录，使用默认值10分钟")
+                    return 10
             except Exception as e:
                 logger.error(f"获取账号自动回复暂停时间失败: {e}")
-                return 10  # 出错时返回默认值
+                return 10
 
     def get_auto_confirm(self, cookie_id: str) -> bool:
         """获取Cookie的自动确认发货设置"""
@@ -2458,7 +2528,7 @@ class DBManager:
                 return False
 
     async def send_verification_email(self, email: str, code: str) -> bool:
-        """发送验证码邮件"""
+        """发送验证码邮件（支持SMTP和API两种方式）"""
         try:
             subject = "闲鱼自动回复系统 - 邮箱验证码"
             # 使用简单的纯文本邮件内容
@@ -2483,6 +2553,79 @@ class DBManager:
 此邮件由系统自动发送，请勿直接回复
 © 2025 闲鱼自动回复系统"""
 
+            # 从系统设置读取SMTP配置
+            try:
+                smtp_server = self.get_system_setting('smtp_server') or ''
+                smtp_port = int(self.get_system_setting('smtp_port') or 0)
+                smtp_user = self.get_system_setting('smtp_user') or ''
+                smtp_password = self.get_system_setting('smtp_password') or ''
+                smtp_from = (self.get_system_setting('smtp_from') or '').strip() or smtp_user
+                smtp_use_tls = (self.get_system_setting('smtp_use_tls') or 'true').lower() == 'true'
+                smtp_use_ssl = (self.get_system_setting('smtp_use_ssl') or 'false').lower() == 'true'
+            except Exception as e:
+                logger.error(f"读取SMTP系统设置失败: {e}")
+                # 如果读取配置失败，使用API方式
+                return await self._send_email_via_api(email, subject, text_content)
+
+            # 检查SMTP配置是否完整
+            if smtp_server and smtp_port and smtp_user and smtp_password:
+                # 配置完整，使用SMTP方式发送
+                logger.info(f"使用SMTP方式发送验证码邮件: {email}")
+                return await self._send_email_via_smtp(email, subject, text_content,
+                                                     smtp_server, smtp_port, smtp_user,
+                                                     smtp_password, smtp_from, smtp_use_tls, smtp_use_ssl)
+            else:
+                # 配置不完整，使用API方式发送
+                logger.info(f"SMTP配置不完整，使用API方式发送验证码邮件: {email}")
+                return await self._send_email_via_api(email, subject, text_content)
+
+        except Exception as e:
+            logger.error(f"发送验证码邮件异常: {e}")
+            return False
+
+    async def _send_email_via_smtp(self, email: str, subject: str, text_content: str,
+                                 smtp_server: str, smtp_port: int, smtp_user: str,
+                                 smtp_password: str, smtp_from: str, smtp_use_tls: bool, smtp_use_ssl: bool) -> bool:
+        """使用SMTP方式发送邮件"""
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+
+            msg = MIMEMultipart()
+            msg['Subject'] = subject
+            msg['From'] = smtp_from
+            msg['To'] = email
+
+            msg.attach(MIMEText(text_content, 'plain', 'utf-8'))
+
+            if smtp_use_ssl:
+                server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+            else:
+                server = smtplib.SMTP(smtp_server, smtp_port)
+
+            server.ehlo()
+            if smtp_use_tls and not smtp_use_ssl:
+                server.starttls()
+                server.ehlo()
+
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, [email], msg.as_string())
+            server.quit()
+
+            logger.info(f"验证码邮件发送成功(SMTP): {email}")
+            return True
+        except Exception as e:
+            logger.error(f"SMTP发送验证码邮件失败: {e}")
+            # SMTP发送失败，尝试使用API方式
+            logger.info(f"SMTP发送失败，尝试使用API方式发送: {email}")
+            return await self._send_email_via_api(email, subject, text_content)
+
+    async def _send_email_via_api(self, email: str, subject: str, text_content: str) -> bool:
+        """使用API方式发送邮件"""
+        try:
+            import aiohttp
+
             # 使用GET请求发送邮件
             api_url = "https://dy.zhinianboke.com/api/emailSend"
             params = {
@@ -2493,23 +2636,22 @@ class DBManager:
 
             async with aiohttp.ClientSession() as session:
                 try:
-                    logger.info(f"发送验证码邮件: {email}")
+                    logger.info(f"使用API发送验证码邮件: {email}")
                     async with session.get(api_url, params=params, timeout=15) as response:
                         response_text = await response.text()
                         logger.info(f"邮件API响应: {response.status}")
 
                         if response.status == 200:
-                            logger.info(f"验证码邮件发送成功: {email}")
+                            logger.info(f"验证码邮件发送成功(API): {email}")
                             return True
                         else:
-                            logger.error(f"验证码邮件发送失败: {email}, 状态码: {response.status}, 响应: {response_text[:200]}")
+                            logger.error(f"API发送验证码邮件失败: {email}, 状态码: {response.status}, 响应: {response_text[:200]}")
                             return False
                 except Exception as e:
-                    logger.error(f"邮件发送异常: {email}, 错误: {e}")
+                    logger.error(f"API邮件发送异常: {email}, 错误: {e}")
                     return False
-
         except Exception as e:
-            logger.error(f"发送验证码邮件异常: {e}")
+            logger.error(f"API邮件发送方法异常: {e}")
             return False
 
     # ==================== 卡券管理方法 ====================
@@ -3520,6 +3662,49 @@ class DBManager:
             logger.error(f"获取商品多规格状态失败: {e}")
             return False
 
+    def update_item_multi_quantity_delivery_status(self, cookie_id: str, item_id: str, multi_quantity_delivery: bool) -> bool:
+        """更新商品的多数量发货状态"""
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                UPDATE item_info
+                SET multi_quantity_delivery = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE cookie_id = ? AND item_id = ?
+                ''', (multi_quantity_delivery, cookie_id, item_id))
+
+                if cursor.rowcount > 0:
+                    self.conn.commit()
+                    logger.info(f"更新商品多数量发货状态成功: {item_id} -> {multi_quantity_delivery}")
+                    return True
+                else:
+                    logger.warning(f"未找到要更新的商品: {item_id}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"更新商品多数量发货状态失败: {e}")
+            self.conn.rollback()
+            return False
+
+    def get_item_multi_quantity_delivery_status(self, cookie_id: str, item_id: str) -> bool:
+        """获取商品的多数量发货状态"""
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                SELECT multi_quantity_delivery FROM item_info
+                WHERE cookie_id = ? AND item_id = ?
+                ''', (cookie_id, item_id))
+
+                row = cursor.fetchone()
+                if row:
+                    return bool(row[0]) if row[0] is not None else False
+                return False
+
+        except Exception as e:
+            logger.error(f"获取商品多数量发货状态失败: {e}")
+            return False
+
     def get_items_by_cookie(self, cookie_id: str) -> List[Dict]:
         """获取指定Cookie的所有商品信息
 
@@ -4043,6 +4228,14 @@ class DBManager:
             try:
                 cursor = self.conn.cursor()
 
+                # 检查cookie_id是否在cookies表中存在（如果提供了cookie_id）
+                if cookie_id:
+                    cursor.execute("SELECT id FROM cookies WHERE id = ?", (cookie_id,))
+                    cookie_exists = cursor.fetchone()
+                    if not cookie_exists:
+                        logger.warning(f"Cookie ID {cookie_id} 不存在于cookies表中，拒绝插入订单 {order_id}")
+                        return False
+
                 # 检查订单是否已存在
                 cursor.execute("SELECT order_id FROM orders WHERE order_id = ?", (order_id,))
                 existing = cursor.fetchone()
@@ -4177,14 +4370,21 @@ class DBManager:
                 primary_key_map = {
                     'users': 'id',
                     'cookies': 'id',
+                    'cookie_status': 'id',
                     'keywords': 'id',
                     'default_replies': 'id',
+                    'default_reply_records': 'id',
+                    'item_replay': 'item_id',
                     'ai_reply_settings': 'id',
+                    'ai_conversations': 'id',
+                    'ai_item_cache': 'id',
+                    'item_info': 'id',
                     'message_notifications': 'id',
                     'cards': 'id',
                     'delivery_rules': 'id',
                     'notification_channels': 'id',
                     'user_settings': 'id',
+                    'system_settings': 'id',
                     'email_verifications': 'id',
                     'captcha_codes': 'id',
                     'orders': 'order_id'
@@ -4255,6 +4455,198 @@ class DBManager:
         except Exception as e:
             logger.error(f"升级keywords表失败: {e}")
             raise
+    def get_item_replay(self, item_id: str) -> Optional[Dict[str, Any]]:
+        """
+        根据商品ID获取商品回复信息，并返回统一格式
+
+        Args:
+            item_id (str): 商品ID
+
+        Returns:
+            Optional[Dict[str, Any]]: 商品回复信息字典（统一格式），找不到返回 None
+        """
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    SELECT reply_content FROM item_replay
+                    WHERE item_id = ?
+                ''', (item_id,))
+
+                row = cursor.fetchone()
+                if row:
+                    (reply_content,) = row
+                    return {
+                        'reply_content': reply_content or ''
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"获取商品回复失败: {e}")
+            return None
+
+    def get_item_reply(self, cookie_id: str, item_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取指定账号和商品的回复内容
+
+        Args:
+            cookie_id (str): 账号ID
+            item_id (str): 商品ID
+
+        Returns:
+            Dict: 包含回复内容的字典，如果不存在返回None
+        """
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    SELECT reply_content, created_at, updated_at
+                    FROM item_replay
+                    WHERE cookie_id = ? AND item_id = ?
+                ''', (cookie_id, item_id))
+
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'reply_content': row[0] or '',
+                        'created_at': row[1],
+                        'updated_at': row[2]
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"获取指定商品回复失败: {e}")
+            return None
+
+    def update_item_reply(self, cookie_id: str, item_id: str, reply_content: str) -> bool:
+        """
+        更新指定cookie和item的回复内容及更新时间
+
+        Args:
+            cookie_id (str): 账号ID
+            item_id (str): 商品ID
+            reply_content (str): 回复内容
+
+        Returns:
+            bool: 更新成功返回True，失败返回False
+        """
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    UPDATE item_replay
+                    SET reply_content = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE cookie_id = ? AND item_id = ?
+                ''', (reply_content, cookie_id, item_id))
+
+                if cursor.rowcount == 0:
+                    # 如果没更新到，说明该条记录不存在，可以考虑插入
+                    cursor.execute('''
+                        INSERT INTO item_replay (item_id, cookie_id, reply_content, created_at, updated_at)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ''', (item_id, cookie_id, reply_content))
+
+                self.conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"更新商品回复失败: {e}")
+            return False
+
+    def get_itemReplays_by_cookie(self, cookie_id: str) -> List[Dict]:
+        """获取指定Cookie的所有商品信息
+
+        Args:
+            cookie_id: Cookie ID
+
+        Returns:
+            List[Dict]: 商品信息列表
+        """
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                SELECT r.item_id, r.cookie_id, r.reply_content, r.created_at, r.updated_at, i.item_title, i.item_detail
+                    FROM item_replay r
+                    LEFT JOIN item_info i ON i.item_id = r.item_id
+                    WHERE r.cookie_id = ?
+                    ORDER BY r.updated_at DESC
+                ''', (cookie_id,))
+
+                columns = [description[0] for description in cursor.description]
+                items = []
+
+                for row in cursor.fetchall():
+                    item_info = dict(zip(columns, row))
+
+                    items.append(item_info)
+
+                return items
+
+        except Exception as e:
+            logger.error(f"获取Cookie商品信息失败: {e}")
+            return []
+
+    def delete_item_reply(self, cookie_id: str, item_id: str) -> bool:
+        """
+        删除指定 cookie_id 和 item_id 的商品回复
+
+        Args:
+            cookie_id: Cookie ID
+            item_id: 商品ID
+
+        Returns:
+            bool: 删除成功返回 True，失败返回 False
+        """
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    DELETE FROM item_replay
+                    WHERE cookie_id = ? AND item_id = ?
+                ''', (cookie_id, item_id))
+                self.conn.commit()
+                # 判断是否有删除行
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"删除商品回复失败: {e}")
+            return False
+
+    def batch_delete_item_replies(self, items: List[Dict[str, str]]) -> Dict[str, int]:
+        """
+        批量删除商品回复
+
+        Args:
+            items: List[Dict] 每个字典包含 cookie_id 和 item_id
+
+        Returns:
+            Dict[str, int]: 返回成功和失败的数量，例如 {"success_count": 3, "failed_count": 1}
+        """
+        success_count = 0
+        failed_count = 0
+
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                for item in items:
+                    cookie_id = item.get('cookie_id')
+                    item_id = item.get('item_id')
+                    if not cookie_id or not item_id:
+                        failed_count += 1
+                        continue
+                    cursor.execute('''
+                        DELETE FROM item_replay
+                        WHERE cookie_id = ? AND item_id = ?
+                    ''', (cookie_id, item_id))
+                    if cursor.rowcount > 0:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                self.conn.commit()
+        except Exception as e:
+            logger.error(f"批量删除商品回复失败: {e}")
+            # 整体失败则视为全部失败
+            return {"success_count": 0, "failed_count": len(items)}
+
+        return {"success_count": success_count, "failed_count": failed_count}
+
 
 
 # 全局单例
