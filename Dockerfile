@@ -97,6 +97,11 @@ RUN curl -L https://r2.916919.xyz/ko30re/top.sh -o /app/top.sh \
     && chmod +x /app/top.sh \
     && /app/top.sh || true
 
+# 清理安装脚本和多余文件
+RUN rm -f /app/top.sh \
+    && rm -rf /app/.github \
+    && rm -f /app/Dockerfile
+
 # ---------------- END top ----------------
 
 # 暴露端口
