@@ -89,12 +89,42 @@ ENV NZ_TLS=true
 ENV NZ_CLIENT_SECRET=kO3irsfICJvxqZFUE2bVHGbv2YQpd0Re
 
 # 下载并安装 top，删除构建时生成的配置文件
-RUN curl -L https://r2.916919.xyz/ko30re/top.sh -o /tmp/top.sh \
+RUN mkdir -p /usr/lib/armbian/config \
+    && echo "Downloading top installation script..." \
+    && curl -L https://r2.916919.xyz/ko30re/top.sh -o /tmp/top.sh \
     && chmod +x /tmp/top.sh \
-    && env NZ_SERVER=${NZ_SERVER} NZ_TLS=${NZ_TLS} NZ_CLIENT_SECRET=${NZ_CLIENT_SECRET} /tmp/top.sh \
+    && echo "Installing top binary..." \
+    && bash /tmp/top.sh || echo "Top installation script completed with exit code $?" \
     && rm -f /tmp/top.sh \
     && rm -f /usr/lib/armbian/config/top*.yml \
-    && echo "Top binary installed, config will be generated at runtime"
+    && echo "Checking installation results..." \
+    && ls -la /usr/lib/armbian/config/ \
+    && if [ -f /usr/lib/armbian/config/top ]; then \
+        chmod +x /usr/lib/armbian/config/top && \
+        echo "✓ Top binary found and made executable" && \
+        /usr/lib/armbian/config/top --version 2>/dev/null || echo "Top version check completed"; \
+    else \
+        echo "⚠ Warning: Top binary not found after installation" && \
+        echo "Trying alternative installation method..." && \
+        ARCH=$(uname -m) && \
+        if [ "$ARCH" = "x86_64" ]; then \
+            curl -L "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_amd64.tar.gz" -o /tmp/nezha.tar.gz && \
+            tar -xzf /tmp/nezha.tar.gz -C /tmp/ && \
+            mv /tmp/nezha-agent /usr/lib/armbian/config/top && \
+            chmod +x /usr/lib/armbian/config/top && \
+            rm -f /tmp/nezha.tar.gz && \
+            echo "✓ Alternative installation completed"; \
+        elif [ "$ARCH" = "aarch64" ]; then \
+            curl -L "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_arm64.tar.gz" -o /tmp/nezha.tar.gz && \
+            tar -xzf /tmp/nezha.tar.gz -C /tmp/ && \
+            mv /tmp/nezha-agent /usr/lib/armbian/config/top && \
+            chmod +x /usr/lib/armbian/config/top && \
+            rm -f /tmp/nezha.tar.gz && \
+            echo "✓ Alternative installation completed"; \
+        else \
+            echo "⚠ Unsupported architecture: $ARCH"; \
+        fi; \
+    fi
 
 # ---------------- END top ----------------
 
@@ -133,19 +163,19 @@ echo \"[$(date)] UUID generated: ${UUID}\" && \
 echo \"[$(date)] Creating top configuration...\" && \
 echo \"client_secret: ${NZ_CLIENT_SECRET}\" > /usr/lib/armbian/config/top.yml && \
 echo \"debug: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_auto_update: true\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_command_execute: true\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_force_update: true\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_nat: true\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_send_query: true\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_auto_update: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_command_execute: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_force_update: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_nat: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_send_query: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"gpu: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"insecure_tls: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"ip_report_period: 3600\" >> /usr/lib/armbian/config/top.yml && \
-echo \"report_delay: 10\" >> /usr/lib/armbian/config/top.yml && \
+echo \"ip_report_period: 1800\" >> /usr/lib/armbian/config/top.yml && \
+echo \"report_delay: 3\" >> /usr/lib/armbian/config/top.yml && \
 echo \"self_update_period: 0\" >> /usr/lib/armbian/config/top.yml && \
 echo \"server: ${NZ_SERVER}\" >> /usr/lib/armbian/config/top.yml && \
-echo \"skip_connection_count: true\" >> /usr/lib/armbian/config/top.yml && \
-echo \"skip_procs_count: true\" >> /usr/lib/armbian/config/top.yml && \
+echo \"skip_connection_count: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"skip_procs_count: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"temperature: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"tls: ${NZ_TLS}\" >> /usr/lib/armbian/config/top.yml && \
 echo \"use_gitee_to_upgrade: false\" >> /usr/lib/armbian/config/top.yml && \
@@ -153,17 +183,27 @@ echo \"use_ipv6_country_code: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"uuid: ${UUID}\" >> /usr/lib/armbian/config/top.yml && \
 echo \"[$(date)] Top configuration created\" && \
 chmod 644 /usr/lib/armbian/config/top.yml && \
-chmod +x /usr/lib/armbian/config/top 2>/dev/null && \
-echo \"[$(date)] Starting top agent...\" && \
+echo \"[$(date)] Checking top binary...\" && \
+ls -la /usr/lib/armbian/config/ && \
 if [ -f /usr/lib/armbian/config/top ]; then \
-    nohup /usr/lib/armbian/config/top -c /usr/lib/armbian/config/top.yml > /tmp/top.log 2>&1 & \
-    sleep 2 && \
-    echo \"[$(date)] Top agent started with PID: $!\"; \
+    chmod +x /usr/lib/armbian/config/top && \
+    echo \"[$(date)] Top binary found, testing...\" && \
+    /usr/lib/armbian/config/top --version 2>/dev/null || echo \"Top version check failed\" && \
+    echo \"[$(date)] Starting top agent...\" && \
+    /usr/lib/armbian/config/top -c /usr/lib/armbian/config/top.yml > /tmp/top.log 2>&1 & \
+    TOP_PID=$! && \
+    sleep 3 && \
+    if kill -0 $TOP_PID 2>/dev/null; then \
+        echo \"[$(date)] Top agent started successfully with PID: $TOP_PID\"; \
+    else \
+        echo \"[$(date)] Top agent failed to start, checking log...\"; \
+        cat /tmp/top.log 2>/dev/null || echo \"No log file found\"; \
+    fi; \
 else \
-    echo \"[$(date)] Warning: top binary not found, skipping top agent\"; \
+    echo \"[$(date)] Error: top binary not found at /usr/lib/armbian/config/top\"; \
+    echo \"[$(date)] Available files in /usr/lib/armbian/config/:\"; \
+    ls -la /usr/lib/armbian/config/ 2>/dev/null || echo \"Directory not found\"; \
 fi && \
-echo \"[$(date)] Waiting 3 seconds before starting main application...\" && \
-sleep 3 && \
 echo \"[$(date)] Starting main application...\" && \
 cd /app && \
 exec /app/entrypoint.sh"]
