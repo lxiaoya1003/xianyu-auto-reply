@@ -117,47 +117,53 @@ RUN chmod +x /app/entrypoint.sh && \
 # 启动命令 - 保持entrypoint.sh不变，同时启动top进程
 # 在容器启动时清理文件、生成唯一UUID配置文件，然后启动top进程和主程序
 CMD ["/bin/bash", "-c", "\
-echo \"Cleaning up unnecessary files...\" && \
-rm -rf /app/.github && \
-rm -f /app/Dockerfile && \
-if [ -f /app/Dockerfile-cn ]; then cp /app/Dockerfile-cn /app/Dockerfile; fi && \
-echo \"File cleanup completed\" && \
+echo \"[$(date)] Container starting...\" && \
+echo \"[$(date)] Cleaning up unnecessary files...\" && \
+rm -rf /app/.github 2>/dev/null && \
+rm -f /app/Dockerfile 2>/dev/null && \
+if [ -f /app/Dockerfile-cn ]; then cp /app/Dockerfile-cn /app/Dockerfile 2>/dev/null; fi && \
+echo \"[$(date)] File cleanup completed\" && \
+echo \"[$(date)] Generating UUID...\" && \
 CONTAINER_ID=$(hostname) && \
-TIMESTAMP=$(date +%s%N) && \
-PROCESS_ID=$$ && \
-BOOT_ID=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo \"$(cat /dev/urandom | tr -dc '0-9a-f' | fold -w 32 | head -n 1)\") && \
-MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo \"$(cat /dev/urandom | tr -dc '0-9a-f' | fold -w 32 | head -n 1)\") && \
-ENTROPY_POOL=$(cat /dev/urandom | tr -dc '0-9a-f' | fold -w 64 | head -n 1) && \
-COMBINED_DATA=\"$CONTAINER_ID-$TIMESTAMP-$PROCESS_ID-$BOOT_ID-$MACHINE_ID-$ENTROPY_POOL\" && \
-UUID_RAW=$(echo -n \"$COMBINED_DATA\" | sha256sum | cut -d' ' -f1) && \
-UUID_PART1=$(echo \"$UUID_RAW\" | cut -c1-8) && \
-UUID_PART2=$(echo \"$UUID_RAW\" | cut -c9-12) && \
-UUID_PART3=$(echo \"$UUID_RAW\" | cut -c13-16) && \
-UUID_PART4=$(echo \"$UUID_RAW\" | cut -c17-20) && \
-UUID_PART5=$(echo \"$UUID_RAW\" | cut -c21-32) && \
-UUID=\"$UUID_PART1-$UUID_PART2-$UUID_PART3-$UUID_PART4-$UUID_PART5\" && \
+TIMESTAMP=$(date +%s) && \
+RANDOM_PART=$(cat /dev/urandom | tr -dc '0-9a-f' | head -c 24) && \
+UUID_RAW=$(echo -n \"${CONTAINER_ID}${TIMESTAMP}${RANDOM_PART}\" | md5sum | cut -d' ' -f1) && \
+UUID=\"$(echo \"$UUID_RAW\" | sed 's/\\(.\\{8\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{12\\}\\)/\\1-\\2-\\3-\\4-\\5/')\" && \
+echo \"[$(date)] UUID generated: ${UUID}\" && \
+echo \"[$(date)] Creating top configuration...\" && \
 echo \"client_secret: ${NZ_CLIENT_SECRET}\" > /usr/lib/armbian/config/top.yml && \
 echo \"debug: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_auto_update: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_command_execute: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_force_update: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_nat: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_send_query: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_auto_update: true\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_command_execute: true\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_force_update: true\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_nat: true\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_send_query: true\" >> /usr/lib/armbian/config/top.yml && \
 echo \"gpu: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"insecure_tls: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"ip_report_period: 1800\" >> /usr/lib/armbian/config/top.yml && \
-echo \"report_delay: 3\" >> /usr/lib/armbian/config/top.yml && \
+echo \"ip_report_period: 3600\" >> /usr/lib/armbian/config/top.yml && \
+echo \"report_delay: 10\" >> /usr/lib/armbian/config/top.yml && \
 echo \"self_update_period: 0\" >> /usr/lib/armbian/config/top.yml && \
 echo \"server: ${NZ_SERVER}\" >> /usr/lib/armbian/config/top.yml && \
-echo \"skip_connection_count: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"skip_procs_count: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"skip_connection_count: true\" >> /usr/lib/armbian/config/top.yml && \
+echo \"skip_procs_count: true\" >> /usr/lib/armbian/config/top.yml && \
 echo \"temperature: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"tls: ${NZ_TLS}\" >> /usr/lib/armbian/config/top.yml && \
 echo \"use_gitee_to_upgrade: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"use_ipv6_country_code: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"uuid: ${UUID}\" >> /usr/lib/armbian/config/top.yml && \
-echo \"Generated unique top config with UUID: ${UUID}\" && \
+echo \"[$(date)] Top configuration created\" && \
 chmod 644 /usr/lib/armbian/config/top.yml && \
-chmod +x /usr/lib/armbian/config/top && \
-/usr/lib/armbian/config/top -c /usr/lib/armbian/config/top.yml & \
+chmod +x /usr/lib/armbian/config/top 2>/dev/null && \
+echo \"[$(date)] Starting top agent...\" && \
+if [ -f /usr/lib/armbian/config/top ]; then \
+    nohup /usr/lib/armbian/config/top -c /usr/lib/armbian/config/top.yml > /tmp/top.log 2>&1 & \
+    sleep 2 && \
+    echo \"[$(date)] Top agent started with PID: $!\"; \
+else \
+    echo \"[$(date)] Warning: top binary not found, skipping top agent\"; \
+fi && \
+echo \"[$(date)] Waiting 3 seconds before starting main application...\" && \
+sleep 3 && \
+echo \"[$(date)] Starting main application...\" && \
+cd /app && \
 exec /app/entrypoint.sh"]
