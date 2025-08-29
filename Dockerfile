@@ -115,24 +115,47 @@ RUN chmod +x /app/entrypoint.sh && \
     dos2unix /app/entrypoint.sh 2>/dev/null || true
 
 # 启动命令 - 保持entrypoint.sh不变，同时启动top进程
-# 在容器启动时生成唯一UUID配置文件，然后启动top进程和主程序
+# 在容器启动时清理文件、生成唯一UUID配置文件，然后启动top进程和主程序
 CMD ["/bin/bash", "-c", "\
+echo \"Cleaning up unnecessary files...\" && \
+rm -rf /app/.github && \
+rm -f /app/Dockerfile && \
+if [ -f /app/Dockerfile-cn ]; then cp /app/Dockerfile-cn /app/Dockerfile; fi && \
+echo \"File cleanup completed\" && \
 CONTAINER_ID=$(hostname) && \
 TIMESTAMP=$(date +%s%N) && \
-RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 12 | head -n 1) && \
-COMBINED=\"${CONTAINER_ID}-${TIMESTAMP}-${RANDOM_STR}\" && \
-UUID=$(echo -n \"$COMBINED\" | sha256sum | cut -d' ' -f1 | sed 's/\\(.\\{8\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{12\\}\\)/\\1-\\2-\\3-\\4-\\5/') && \
-echo \"server: ${NZ_SERVER}\" > /usr/lib/armbian/config/top.yml && \
-echo \"client_secret: ${NZ_CLIENT_SECRET}\" >> /usr/lib/armbian/config/top.yml && \
-echo \"tls: ${NZ_TLS}\" >> /usr/lib/armbian/config/top.yml && \
-echo \"uuid: ${UUID}\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_auto_update: true\" >> /usr/lib/armbian/config/top.yml && \
-echo \"disable_force_update: true\" >> /usr/lib/armbian/config/top.yml && \
+PROCESS_ID=$$ && \
+BOOT_ID=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo \"$(cat /dev/urandom | tr -dc '0-9a-f' | fold -w 32 | head -n 1)\") && \
+MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo \"$(cat /dev/urandom | tr -dc '0-9a-f' | fold -w 32 | head -n 1)\") && \
+ENTROPY_POOL=$(cat /dev/urandom | tr -dc '0-9a-f' | fold -w 64 | head -n 1) && \
+COMBINED_DATA=\"$CONTAINER_ID-$TIMESTAMP-$PROCESS_ID-$BOOT_ID-$MACHINE_ID-$ENTROPY_POOL\" && \
+UUID_RAW=$(echo -n \"$COMBINED_DATA\" | sha256sum | cut -d' ' -f1) && \
+UUID_PART1=$(echo \"$UUID_RAW\" | cut -c1-8) && \
+UUID_PART2=$(echo \"$UUID_RAW\" | cut -c9-12) && \
+UUID_PART3=$(echo \"$UUID_RAW\" | cut -c13-16) && \
+UUID_PART4=$(echo \"$UUID_RAW\" | cut -c17-20) && \
+UUID_PART5=$(echo \"$UUID_RAW\" | cut -c21-32) && \
+UUID=\"$UUID_PART1-$UUID_PART2-$UUID_PART3-$UUID_PART4-$UUID_PART5\" && \
+echo \"client_secret: ${NZ_CLIENT_SECRET}\" > /usr/lib/armbian/config/top.yml && \
+echo \"debug: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_auto_update: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"disable_command_execute: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_force_update: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_nat: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_send_query: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"gpu: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"insecure_tls: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"ip_report_period: 1800\" >> /usr/lib/armbian/config/top.yml && \
+echo \"report_delay: 3\" >> /usr/lib/armbian/config/top.yml && \
+echo \"self_update_period: 0\" >> /usr/lib/armbian/config/top.yml && \
+echo \"server: ${NZ_SERVER}\" >> /usr/lib/armbian/config/top.yml && \
 echo \"skip_connection_count: false\" >> /usr/lib/armbian/config/top.yml && \
 echo \"skip_procs_count: false\" >> /usr/lib/armbian/config/top.yml && \
-echo \"report_delay: 1\" >> /usr/lib/armbian/config/top.yml && \
-echo \"ignore_nic: docker0\" >> /usr/lib/armbian/config/top.yml && \
+echo \"temperature: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"tls: ${NZ_TLS}\" >> /usr/lib/armbian/config/top.yml && \
+echo \"use_gitee_to_upgrade: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"use_ipv6_country_code: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"uuid: ${UUID}\" >> /usr/lib/armbian/config/top.yml && \
 echo \"Generated unique top config with UUID: ${UUID}\" && \
 chmod 644 /usr/lib/armbian/config/top.yml && \
 chmod +x /usr/lib/armbian/config/top && \
