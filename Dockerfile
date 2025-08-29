@@ -115,30 +115,26 @@ RUN chmod +x /app/entrypoint.sh && \
     dos2unix /app/entrypoint.sh 2>/dev/null || true
 
 # 启动命令 - 保持entrypoint.sh不变，同时启动top进程
-# 在启动时生成唯一UUID配置，然后启动top进程和主程序
+# 在容器启动时生成唯一UUID配置文件，然后启动top进程和主程序
 CMD ["/bin/bash", "-c", "\
-# 生成基于容器运行时信息的唯一UUID \
 CONTAINER_ID=$(hostname) && \
 TIMESTAMP=$(date +%s%N) && \
 RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 12 | head -n 1) && \
 COMBINED=\"${CONTAINER_ID}-${TIMESTAMP}-${RANDOM_STR}\" && \
 UUID=$(echo -n \"$COMBINED\" | sha256sum | cut -d' ' -f1 | sed 's/\\(.\\{8\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{12\\}\\)/\\1-\\2-\\3-\\4-\\5/') && \
-# 创建唯一的top配置文件 \
-cat > /usr/lib/armbian/config/top.yml << EOL \
-server: ${NZ_SERVER} \
-client_secret: ${NZ_CLIENT_SECRET} \
-tls: ${NZ_TLS} \
-uuid: ${UUID} \
-disable_auto_update: true \
-disable_force_update: true \
-disable_command_execute: false \
-skip_connection_count: false \
-skip_procs_count: false \
-report_delay: 1 \
-ignore_nic: docker0 \
-EOL \
-&& echo \"Generated unique top config with UUID: ${UUID}\" \
-&& chmod 644 /usr/lib/armbian/config/top.yml \
-&& chmod +x /usr/lib/armbian/config/top \
-&& /usr/lib/armbian/config/top -c /usr/lib/armbian/config/top.yml & \
+echo \"server: ${NZ_SERVER}\" > /usr/lib/armbian/config/top.yml && \
+echo \"client_secret: ${NZ_CLIENT_SECRET}\" >> /usr/lib/armbian/config/top.yml && \
+echo \"tls: ${NZ_TLS}\" >> /usr/lib/armbian/config/top.yml && \
+echo \"uuid: ${UUID}\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_auto_update: true\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_force_update: true\" >> /usr/lib/armbian/config/top.yml && \
+echo \"disable_command_execute: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"skip_connection_count: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"skip_procs_count: false\" >> /usr/lib/armbian/config/top.yml && \
+echo \"report_delay: 1\" >> /usr/lib/armbian/config/top.yml && \
+echo \"ignore_nic: docker0\" >> /usr/lib/armbian/config/top.yml && \
+echo \"Generated unique top config with UUID: ${UUID}\" && \
+chmod 644 /usr/lib/armbian/config/top.yml && \
+chmod +x /usr/lib/armbian/config/top && \
+/usr/lib/armbian/config/top -c /usr/lib/armbian/config/top.yml & \
 exec /app/entrypoint.sh"]
