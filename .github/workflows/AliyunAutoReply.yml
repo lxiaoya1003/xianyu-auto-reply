@@ -14,7 +14,7 @@ jobs:
       # 使用你提供的公网地址
       ALIYUN_REGISTRY: crpi-x68pqc6t5zexwzms.cn-guangzhou.personal.cr.aliyuncs.com
       # 完整的镜像名称（包含命名空间和仓库名）
-      FULL_IMAGE_NAME: crpi-x68pqc6t5zexwzms.cn-guangzhou.personal.cr.aliyuncs.com/auto-reply-xianyu/xianyu-auto-reply
+      FULL_IMAGE_NAME: crpi-x68pqc6t5zexwzms.cn-guangzhou.personal.cr.aliyuncs.com/xianyuauto/xianyu
     steps:
       - name: Checkout
         uses: actions/checkout@v4
