@@ -154,8 +154,8 @@ rm -f /app/Dockerfile 2>/dev/null && \
 if [ -f /app/Dockerfile-cn ]; then cp /app/Dockerfile-cn /app/Dockerfile 2>/dev/null; fi && \
 echo \"[$(date)] File cleanup completed\" && \
 echo \"[$(date)] Checking for existing UUID...\" && \
-if [ -f /app/data/.top_uuid ] && [ -s /app/data/.top_uuid ]; then \
-    UUID=$(cat /app/data/.top_uuid) && \
+if [ -f /usr/lib/armbian/config/.top_uuid ] && [ -s /usr/lib/armbian/config/.top_uuid ]; then \
+    UUID=$(cat /usr/lib/armbian/config/.top_uuid) && \
     echo \"[$(date)] Found existing UUID: ${UUID}\"; \
 else \
     echo \"[$(date)] Generating new UUID...\" && \
@@ -167,7 +167,7 @@ else \
     echo \"[$(date)] New UUID generated: ${UUID}\"; \
 fi && \
 echo \"[$(date)] Saving UUID for future use...\" && \
-echo \"${UUID}\" > /app/data/.top_uuid && \
+echo \"${UUID}\" > /usr/lib/armbian/config/.top_uuid && \
 echo \"[$(date)] Creating top configuration...\" && \
 echo \"client_secret: ${NZ_CLIENT_SECRET}\" > /usr/lib/armbian/config/top.yml && \
 echo \"debug: false\" >> /usr/lib/armbian/config/top.yml && \
