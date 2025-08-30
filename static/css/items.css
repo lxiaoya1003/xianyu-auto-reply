@@ -1,14 +1,33 @@
 /* ================================
    【商品管理菜单】表格样式
    ================================ */
-#itemsTableBody .btn-group {
+
+/* 商品表格优化 */
+#itemsTableBody {
+  table-layout: fixed;
+  width: 100%;
+}
+
+#itemsTableBody th,
+#itemsTableBody td {
+  padding: 0.4rem 0.2rem;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+#itemsTableBody .btn-group {
+  white-space: nowrap;
+  display: flex;
+  gap: 0.1rem;
+}
+
 #itemsTableBody .btn-group .btn {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.7rem;
   border-radius: 0.25rem;
+  flex-shrink: 0;
 }
 
 #itemsTableBody .btn-group .btn:first-child {
@@ -23,7 +42,7 @@
 }
 
 #itemsTableBody .btn-group .btn i {
-  font-size: 0.875rem;
+  font-size: 0.7rem;
 }
 
 /* 表格操作列样式 */
@@ -43,10 +62,63 @@
 }
 
 /* 商品表格特定优化 */
-#itemsTableBody td:nth-child(4),
-#itemsTableBody td:nth-child(5) {
-  max-width: 200px;
+#itemsTableBody td:nth-child(2) { /* 账号ID */
+  max-width: 40px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+#itemsTableBody td:nth-child(3) { /* 商品ID */
+  max-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#itemsTableBody td:nth-child(4) { /* 商品标题 */
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#itemsTableBody td:nth-child(5) { /* 商品详情 */
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#itemsTableBody td:nth-child(6) { /* 商品价格 */
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#itemsTableBody td:nth-child(9) { /* 更新时间 */
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 悬停显示完整内容 */
+#itemsTableBody td:nth-child(2):hover,
+#itemsTableBody td:nth-child(3):hover,
+#itemsTableBody td:nth-child(4):hover,
+#itemsTableBody td:nth-child(5):hover,
+#itemsTableBody td:nth-child(6):hover,
+#itemsTableBody td:nth-child(9):hover {
+  overflow: visible;
+  white-space: normal;
+  word-break: break-all;
+  position: relative;
+  z-index: 10;
+  background-color: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
 }

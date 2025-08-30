@@ -192,6 +192,88 @@ input:checked + .status-slider:before {
   }
 }
 
+/* 账号表格优化 */
+#cookieTable {
+  table-layout: fixed;
+  width: 100%;
+}
+
+#cookieTable th,
+#cookieTable td {
+  padding: 0.4rem 0.2rem;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 表格内容截断样式 */
+.table-cell-truncate {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-cell-truncate:hover {
+  overflow: visible;
+  white-space: normal;
+  word-break: break-all;
+  position: relative;
+  z-index: 10;
+  background-color: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  padding: 8px;
+  border-radius: 4px;
+}
+
+/* 账号表格特定列的宽度控制 */
+#cookieTable .cookie-cell {
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#cookieTable .cookie-cell:hover {
+  overflow: visible;
+  white-space: normal;
+  word-break: break-all;
+  position: relative;
+  z-index: 10;
+  background-color: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  padding: 8px;
+  border-radius: 4px;
+}
+
+#cookieTable .account-id-cell {
+  max-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#cookieTable .account-id-cell:hover {
+  overflow: visible;
+  white-space: normal;
+  word-break: break-all;
+}
+
+#cookieTable .remark-cell {
+  max-width: 50px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#cookieTable .remark-cell:hover {
+  overflow: visible;
+  white-space: normal;
+  word-break: break-all;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .status-toggle {

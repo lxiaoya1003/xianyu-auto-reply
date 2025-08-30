@@ -125,17 +125,48 @@
   font-weight: 600;
   color: var(--dark-color);
   background: rgba(79, 70, 229, 0.05);
-  padding: 1rem;
+  padding: 0.5rem 0.25rem;
+  font-size: 0.875rem;
+  white-space: nowrap;
 }
 
 .table td {
-  padding: 1rem;
+  padding: 0.5rem 0.25rem;
   border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
+  font-size: 0.875rem;
 }
 
 .table tbody tr:hover {
   background: rgba(79, 70, 229, 0.02);
+}
+
+/* 表格容器优化 */
+.table-responsive {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 确保表格不会超出容器 */
+.table {
+  width: 100%;
+  table-layout: fixed;
+  margin-bottom: 0;
+}
+
+/* 操作按钮组优化 */
+.table .btn-group {
+  white-space: nowrap;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.table .btn-group .btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  border-radius: 0.25rem;
+  flex-shrink: 0;
 }
 
 .badge {
