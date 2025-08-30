@@ -10070,7 +10070,7 @@ function showUpdateAvailable(newVersion) {
     const updateBadge = document.createElement('span');
     updateBadge.className = 'badge bg-warning ms-2 update-badge';
     updateBadge.style.cursor = 'pointer';
-    updateBadge.innerHTML = '<i class="bi bi-arrow-up-circle me-1"></i>有更新';
+    updateBadge.innerHTML = '<i class="bi bi-arrow-up-circle me-1"></i>无更新';
     updateBadge.title = `新版本 ${newVersion} 可用，点击查看更新内容`;
 
     // 点击事件
