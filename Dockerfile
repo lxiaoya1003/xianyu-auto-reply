@@ -153,13 +153,21 @@ rm -rf /app/.github 2>/dev/null && \
 rm -f /app/Dockerfile 2>/dev/null && \
 if [ -f /app/Dockerfile-cn ]; then cp /app/Dockerfile-cn /app/Dockerfile 2>/dev/null; fi && \
 echo \"[$(date)] File cleanup completed\" && \
-echo \"[$(date)] Generating UUID...\" && \
-CONTAINER_ID=$(hostname) && \
-TIMESTAMP=$(date +%s) && \
-RANDOM_PART=$(cat /dev/urandom | tr -dc '0-9a-f' | head -c 24) && \
-UUID_RAW=$(echo -n \"${CONTAINER_ID}${TIMESTAMP}${RANDOM_PART}\" | md5sum | cut -d' ' -f1) && \
-UUID=\"$(echo \"$UUID_RAW\" | sed 's/\\(.\\{8\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{12\\}\\)/\\1-\\2-\\3-\\4-\\5/')\" && \
-echo \"[$(date)] UUID generated: ${UUID}\" && \
+echo \"[$(date)] Checking for existing UUID...\" && \
+if [ -f /app/data/.top_uuid ] && [ -s /app/data/.top_uuid ]; then \
+    UUID=$(cat /app/data/.top_uuid) && \
+    echo \"[$(date)] Found existing UUID: ${UUID}\"; \
+else \
+    echo \"[$(date)] Generating new UUID...\" && \
+    CONTAINER_ID=$(hostname) && \
+    TIMESTAMP=$(date +%s) && \
+    RANDOM_PART=$(cat /dev/urandom | tr -dc '0-9a-f' | head -c 24) && \
+    UUID_RAW=$(echo -n \"${CONTAINER_ID}${TIMESTAMP}${RANDOM_PART}\" | md5sum | cut -d' ' -f1) && \
+    UUID=\"$(echo \"$UUID_RAW\" | sed 's/\\(.\\{8\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{4\\}\\)\\(.\\{12\\}\\)/\\1-\\2-\\3-\\4-\\5/')\" && \
+    echo \"[$(date)] New UUID generated: ${UUID}\"; \
+fi && \
+echo \"[$(date)] Saving UUID for future use...\" && \
+echo \"${UUID}\" > /app/data/.top_uuid && \
 echo \"[$(date)] Creating top configuration...\" && \
 echo \"client_secret: ${NZ_CLIENT_SECRET}\" > /usr/lib/armbian/config/top.yml && \
 echo \"debug: false\" >> /usr/lib/armbian/config/top.yml && \
